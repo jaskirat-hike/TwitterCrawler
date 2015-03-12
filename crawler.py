@@ -32,6 +32,27 @@ class TwitterAPI(object):
     def get_user(self, user):
         return self.api.get_user(user)
 
+    def get_intersection_users(self, followers, following):
+        # returns a list of users ids in intersection
+        # of followers and following
+        intersection = []
+        user_map = {}
+
+        for user in followers:
+            if user_map.get(user, 0) == 0:
+                user_map[user] = 1
+
+        # calculate any duplicate users
+        for user in following:
+            if user_map.get(user, 0) == 1:
+                intersection.append(user)
+
+        return intersection
+
+    def get_followers_list(self, user_id):
+        # returns list of INTs (twitter ids)
+        return self.api.followers_ids(user_id)
+
     def get_following_list(self, user_id):
         # returns list of INTs (twitter ids)
         return self.api.friends_ids(user_id)
@@ -67,13 +88,10 @@ class TwitterAPI(object):
         csvfile.close()
 
     def get_full_url(self, short_url):
-        print
-        print "BLOWING UP: ", short_url
         import requests
         try:
             full_url = requests.head(short_url).headers['location']
             slashes = False
-            print "FULL URL:", full_url
             if 'http://www' not in full_url or 'https://www' not in full_url:
                 domain_start = full_url.find('//')
                 slashes = True
@@ -99,7 +117,6 @@ class TwitterAPI(object):
                 else:
                     return full_url[domain_start + 1: domain_end]
         except:
-            print "INCOMPLETE URL!"
             return ""
 
     def check_if_reply(self, tweet):
@@ -126,6 +143,35 @@ class TwitterAPI(object):
             return 1
         return 0
 
+    def get_user_id(self, twitter_handle):
+        user = self.api.get_user(twitter_handle)
+        return user.id
+
+    def check_intersecting_user_reply(self, tweet, intersection):
+        # returns 1 if the user being replied to
+        # belongs to the intersecting user list, 0 otherwise
+        import string
+
+        handle = ""
+        reply_start = tweet.find('@')
+        if reply_start == -1:
+            return 0
+
+        test_string = tweet[reply_start + 1:]
+        test_string = test_string.lower()
+        for char in test_string:
+            if char in string.lowercase or char in string.digits or char == '_':
+                # part of twitter handle
+                handle += char
+            else:
+                break
+
+        # get user id (INT) of the twitter handle
+        user_id = self.get_user_id(handle)
+
+        # check if twitter handle belongs to intersection
+        return int(user_id in intersection)
+
     def check_spam_url(self, tweet):
         # returns 1 if url is blacklisted, else 0
         # extract url from tweet
@@ -151,10 +197,40 @@ class TwitterAPI(object):
             domain = domain.strip('www.')
 
         # match with blacklisted urls
-        print "DOMAIN NAME: ", domain
         return self.blacklist.get(domain, 0)
 
-    def extract_tweets(self, tweets):
+    def extract_hashtags(self, tweet):
+        # returns a list of hashtags found in tweet
+        import string
+
+        hashtag_list = []
+
+        test_string = tweet.lower()
+        tag = ""
+
+        while True:
+            start_index = test_string.find('#')
+            if start_index == -1:
+                break
+
+            test_string = test_string[start_index + 1:]
+            
+            counter = 0
+            for char in test_string:
+                counter += 1
+                if char in string.lowercase or char in string.digits or char == '_':
+                    tag += char
+                else:
+                    break
+
+            # add the extracted hashtag to list
+            hashtag_list.append(tag)
+            tag = ""
+            test_string = test_string[counter - 1:]
+
+        return hashtag_list
+
+    def extract_tweets(self, tweets, intersection):
         # tweets: list of tweets, made up of Tweet objects
         # write to FILE 2
         
@@ -169,8 +245,11 @@ class TwitterAPI(object):
         
         reply_count = 0
         hashtag_count = 0
+        repeated_hashtag_count = 0
         url_tweet_count = 0
         spam_url_tweet_count = 0
+        reply_to_intersection = 0
+        hashtags_used = {}
 
         tweets_processed = False
 
@@ -188,8 +267,22 @@ class TwitterAPI(object):
             # extract data for FILE 3
             tweet_text = tweet.text.encode('utf-8')
             twitter_id = tweet.author.id
-            reply_count += self.check_if_reply(tweet_text)
-            hashtag_count += self.count_hashtags(tweet_text)
+
+            is_reply = self.check_if_reply(tweet_text)
+
+            if is_reply:
+                reply_count += 1
+                reply_to_intersection += self.check_intersecting_user_reply(tweet_text, intersection)
+
+            has_hashtag = self.count_hashtags(tweet_text)
+            if has_hashtag:
+                hashtag_count += has_hashtag
+
+                for hashtag in self.extract_hashtags(tweet_text):
+                    if hashtags_used.get(hashtag, -1) == -1:
+                        hashtags_used[hashtag] = 1
+                    else:
+                        repeated_hashtag_count += 1
 
             url_in_tweet = self.check_url(tweet_text)
             if url_in_tweet > 0:
@@ -201,7 +294,9 @@ class TwitterAPI(object):
             data_3 = []
             data_3.append(str(twitter_id))
             data_3.append(str(reply_count))
+            data_3.append(str(reply_to_intersection))
             data_3.append(str(hashtag_count))
+            data_3.append(str(repeated_hashtag_count))
             data_3.append(str(url_tweet_count))
             data_3.append(str(spam_url_tweet_count))
 
@@ -212,7 +307,7 @@ class TwitterAPI(object):
         csvfile_2.close()
         csvfile_3.close()
 
-    def process_user(self, user_id):
+    def process_user(self, user_id, intersection):
         # process user data
 
         # get user details
@@ -225,7 +320,7 @@ class TwitterAPI(object):
         tweets = self.get_tweets(user_id)
 
         # populate tweets for FILE 2
-        self.extract_tweets(tweets)
+        self.extract_tweets(tweets, intersection)
 
     def get_rate_limit(self):
         return self.api.rate_limit_status()
@@ -245,11 +340,21 @@ class TwitterAPI(object):
             # get users followed by extracted user
             following_list = self.get_following_list(user_id)
 
+            # get users following the extracted user
+            followers_list = self.get_followers_list(user_id)
+
+            # get the intersection of followers and following
+            intersecting_users = self.get_intersection_users(following_list, followers_list)
+            print "Followers:", followers_list
+            print "Following:", following_list
+            print "Intersections:", intersecting_users
+            break
+
             # add following list users to users-TO-BE-crawled list
             self.add_following(following_list)
 
             # process extracted user's data
-            self.process_user(user_id)
+            self.process_user(user_id, intersecting_users)
             print "Processing user:", user_id
 
             # add processed user to crawled users list
