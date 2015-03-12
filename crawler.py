@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import time
+import csv
+import string
+import requests
+import tweepy
+
 class TwitterAPI(object):
     def __init__(self):
         self.users_to_crawl = []
@@ -8,7 +14,6 @@ class TwitterAPI(object):
         self.blacklist = self.load_blacklisted_urls()
 
     def get_api(self):
-        import tweepy
         consumer_key = "yx0SU3mA2IEj2R5Q11MsexdMT"
         consumer_secret = "xH70Wy8E77owxZufAZc4k9Beh49HsAS8n82W70MOXMDsbnBTwo"
         access_token = "3059873208-AkhBa42pFXfsc1sGwCbiUUvvq9oGP8hlA74JopX"
@@ -28,9 +33,26 @@ class TwitterAPI(object):
             if blacklist.get(url, -1) == -1:
                 blacklist[url] = 1
         return blacklist
+
+    def begin_sleep_sequence(self):
+        print
+        print "~" * 20,
+        print "Sleeping",
+        print "~" * 20
+        print
+        time.sleep(300)
+        print "*" * 20,
+        print "Waking Up",
+        print "*" * 20,
+        print
     
     def get_user(self, user):
-        return self.api.get_user(user)
+        try:
+            return self.api.get_user(user)
+        except tweepy.error.TweepError as err:
+            if err[0][0]['code'] == 88:
+                self.begin_sleep_sequence()
+                return self.get_user(user)
 
     def get_intersection_users(self, followers, following):
         # returns a list of users ids in intersection
@@ -51,11 +73,22 @@ class TwitterAPI(object):
 
     def get_followers_list(self, user_id):
         # returns list of INTs (twitter ids)
-        return self.api.followers_ids(user_id)
+        try:
+            return self.api.followers_ids(user_id)
+        except tweepy.error.TweepError as err:
+            if err[0][0]['code'] == 88:
+                self.begin_sleep_sequence()
+                return self.get_followers_list(user_id)
+
 
     def get_following_list(self, user_id):
         # returns list of INTs (twitter ids)
-        return self.api.friends_ids(user_id)
+        try:
+            return self.api.friends_ids(user_id)
+        except tweepy.error.TweepError as err:
+            if err[0][0]['code'] == 88:
+                self.begin_sleep_sequence()
+                return self.get_following_list(user_id)
 
     def add_following(self, following_list):
         # followers: list of user ids
@@ -64,7 +97,12 @@ class TwitterAPI(object):
                 self.users_to_crawl.append(user)
 
     def get_tweets(self, user_id):
-        return self.api.user_timeline(user_id, count = 100)
+        try:
+            return self.api.user_timeline(user_id, count = 100)
+        except tweepy.error.TweepError as err:
+            if err[0][0]['code'] == 88:
+                self.begin_sleep_sequence()
+                return self.get_tweets(user_id)
 
     def extract_user_details(self, user):
         # extract required details from user object
@@ -81,14 +119,12 @@ class TwitterAPI(object):
         data.append(str(user.created_at))
 
         # write csv row to file
-        import csv
         csvfile = open('user_info.csv', 'a')
         writer = csv.writer(csvfile, quoting = csv.QUOTE_ALL)
         writer.writerow(data)
         csvfile.close()
 
     def get_full_url(self, short_url):
-        import requests
         try:
             full_url = requests.head(short_url).headers['location']
             slashes = False
@@ -144,14 +180,19 @@ class TwitterAPI(object):
         return 0
 
     def get_user_id(self, twitter_handle):
-        user = self.api.get_user(twitter_handle)
-        return user.id
+        try:
+            user = self.api.get_user(twitter_handle)
+            return user.id
+        except tweepy.error.TweepError as err:
+            if err[0][0]['code'] == 88:
+                self.begin_sleep_sequence()
+                return self.get_user_id(twitter_handle)
+        except:
+            return -1
 
     def check_intersecting_user_reply(self, tweet, intersection):
         # returns 1 if the user being replied to
         # belongs to the intersecting user list, 0 otherwise
-        import string
-
         handle = ""
         reply_start = tweet.find('@')
         if reply_start == -1:
@@ -200,9 +241,6 @@ class TwitterAPI(object):
         return self.blacklist.get(domain, 0)
 
     def extract_hashtags(self, tweet):
-        # returns a list of hashtags found in tweet
-        import string
-
         hashtag_list = []
 
         test_string = tweet.lower()
@@ -235,7 +273,6 @@ class TwitterAPI(object):
         # write to FILE 2
         
         # open output FILE 2
-        import csv
         csvfile_2 = open('tweets.csv', 'a')
         writer_2 = csv.writer(csvfile_2, quoting = csv.QUOTE_ALL)
 
@@ -272,7 +309,8 @@ class TwitterAPI(object):
 
             if is_reply:
                 reply_count += 1
-                reply_to_intersection += self.check_intersecting_user_reply(tweet_text, intersection)
+                if len(intersection):
+                    reply_to_intersection += self.check_intersecting_user_reply(tweet_text, intersection)
 
             has_hashtag = self.count_hashtags(tweet_text)
             if has_hashtag:
@@ -282,15 +320,20 @@ class TwitterAPI(object):
                     if hashtags_used.get(hashtag, -1) == -1:
                         hashtags_used[hashtag] = 1
                     else:
-                        repeated_hashtag_count += 1
+                        hashtags_used[hashtag] += 1
 
             url_in_tweet = self.check_url(tweet_text)
             if url_in_tweet > 0:
                 url_tweet_count += 1
                 spam_url_tweet_count += self.check_spam_url(tweet_text)
 
+        for value in hashtags_used.values():
+            if value > 1:
+                repeated_hashtag_count += 1
+
         # structure data for FILE 3
         if tweets_processed:
+
             data_3 = []
             data_3.append(str(twitter_id))
             data_3.append(str(reply_count))
@@ -314,16 +357,19 @@ class TwitterAPI(object):
         user = self.get_user(user_id)
 
         # populate user details for FILE 1
+        print "Fetching account details...",
         self.extract_user_details(user)
+        print "done!"
 
         # fetch tweets of chosen user
+        print "Fetching tweets...",
         tweets = self.get_tweets(user_id)
+        print "done!"
 
         # populate tweets for FILE 2
+        print "Processing tweets...",
         self.extract_tweets(tweets, intersection)
-
-    def get_rate_limit(self):
-        return self.api.rate_limit_status()
+        print "done!"
 
     def crawl(self, seed):
         # begin BFS crawling beginning from a seed user
@@ -333,32 +379,44 @@ class TwitterAPI(object):
         self.users_to_crawl.append(seed_user.id)
         
         # begin BFS
-        while len(self.crawled_users) < 1 and len(self.users_to_crawl) > 0:
+        account_number = 0
+        while len(self.crawled_users) < 15 and len(self.users_to_crawl) > 0:
             # extract user from list of users to be crawled
             user_id = self.users_to_crawl.pop(0)
 
+            account_number += 1
+            print "Processing account", str(account_number) + "..."
+
             # get users followed by extracted user
+            print "Fetching followed...",
             following_list = self.get_following_list(user_id)
+            print "done!"
 
             # get users following the extracted user
+            print "Fetching following...",
             followers_list = self.get_followers_list(user_id)
+            print "done!"
 
             # get the intersection of followers and following
+            print "Calculating intersecting accounts...",
             intersecting_users = self.get_intersection_users(following_list, followers_list)
-            print "Followers:", followers_list
-            print "Following:", following_list
-            print "Intersections:", intersecting_users
-            break
+            print "done!"
 
             # add following list users to users-TO-BE-crawled list
             self.add_following(following_list)
 
             # process extracted user's data
             self.process_user(user_id, intersecting_users)
-            print "Processing user:", user_id
+            print "Account processed successfully!"
+            print "=" * 30
+            print
 
             # add processed user to crawled users list
             self.crawled_users[user_id] = 1
+
+        print "-" * 15,
+        print str(account_number), "accounts processed.",
+        print "-" * 15
 
 
 crawler = TwitterAPI()
