@@ -1,3 +1,18 @@
+# crawler.py
+#
+# Simple Twitter Crawler that does stuff
+# Created for CSRC Lab, PEC Univ
+# Uses tweepy API wrapper
+#
+# Jaskirat Singh
+# jaskiratsingh76@gmail.com
+# March 2015
+# Repo at: github.com/akhrot
+#
+# Note: Replace seed user at end of this file
+# 
+
+
 # -*- coding: utf-8 -*-
 
 import time
@@ -5,25 +20,46 @@ import csv
 import string
 import requests
 import tweepy
+import random
 
 class TwitterAPI(object):
     def __init__(self):
         self.users_to_crawl = []
         self.crawled_users = {}
-        self.api = self.get_api()
+        self.apis = self.get_apis()
         self.blacklist = self.load_blacklisted_urls()
 
-    def get_api(self):
-        consumer_key = "yx0SU3mA2IEj2R5Q11MsexdMT"
-        consumer_secret = "xH70Wy8E77owxZufAZc4k9Beh49HsAS8n82W70MOXMDsbnBTwo"
-        access_token = "3059873208-AkhBa42pFXfsc1sGwCbiUUvvq9oGP8hlA74JopX"
-        access_secret = "Ay3F3JG6AFnd73TunqIefFAguqMDgQUyIt3CYjpI7ixCT"
+    def load_keys(self, file_name):
+        path = "./keys/"
+        file_content = open(path + file_name).read()
+        return file_content.split("\n")[:-1]
 
-        # authenticate using tweepy
-        auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-        auth.set_access_token(access_token, access_secret)
-        api = tweepy.API(auth)
-        return api
+    def get_apis(self):
+        consumer_keys_file = "consumer_keys.txt"
+        consumer_secrets_file = "consumer_secrets.txt"
+        access_tokens_file = "access_tokens.txt"
+        access_secrets_file = "access_secrets.txt"
+
+        consumer_keys = self.load_keys(consumer_keys_file)
+        consumer_secrets = self.load_keys(consumer_secrets_file)
+        access_tokens = self.load_keys(access_tokens_file)
+        access_secrets = self.load_keys(access_secrets_file)
+
+        api_list = []
+        num_keys = len(consumer_keys)
+
+        for index in range(num_keys):
+            # authenticate using tweepy
+            api = ""
+            auth = tweepy.OAuthHandler(consumer_keys[index], consumer_secrets[index])
+            auth.set_access_token(access_tokens[index], access_secrets[index])
+            api = tweepy.API(auth)
+            api_list.append(api)
+
+        print '-' * 15,
+        print len(api_list), "API connections established",
+        print '-' * 15
+        return api_list
 
     def load_blacklisted_urls(self):
         file_name = "blacklisted_urls.txt"
@@ -39,16 +75,15 @@ class TwitterAPI(object):
         print "~" * 20,
         print "Sleeping",
         print "~" * 20
-        print
         time.sleep(300)
         print "*" * 20,
         print "Waking Up",
-        print "*" * 20,
-        print
+        print "*" * 20
     
     def get_user(self, user):
         try:
-            return self.api.get_user(user)
+            api = random.choice(self.apis)
+            return api.get_user(user)
         except tweepy.error.TweepError as err:
             if err[0][0]['code'] == 88:
                 self.begin_sleep_sequence()
@@ -74,7 +109,8 @@ class TwitterAPI(object):
     def get_followers_list(self, user_id):
         # returns list of INTs (twitter ids)
         try:
-            return self.api.followers_ids(user_id)
+            api = random.choice(self.apis)
+            return api.followers_ids(user_id)
         except tweepy.error.TweepError as err:
             if err[0][0]['code'] == 88:
                 self.begin_sleep_sequence()
@@ -84,7 +120,8 @@ class TwitterAPI(object):
     def get_following_list(self, user_id):
         # returns list of INTs (twitter ids)
         try:
-            return self.api.friends_ids(user_id)
+            api = random.choice(self.apis)
+            return api.friends_ids(user_id)
         except tweepy.error.TweepError as err:
             if err[0][0]['code'] == 88:
                 self.begin_sleep_sequence()
@@ -98,7 +135,8 @@ class TwitterAPI(object):
 
     def get_tweets(self, user_id):
         try:
-            return self.api.user_timeline(user_id, count = 100)
+            api = random.choice(self.apis)
+            return api.user_timeline(user_id, count = 100)
         except tweepy.error.TweepError as err:
             if err[0][0]['code'] == 88:
                 self.begin_sleep_sequence()
@@ -117,6 +155,10 @@ class TwitterAPI(object):
         data.append(str(user.followers_count))
         data.append(str(user.friends_count))
         data.append(str(user.created_at))
+
+        # calculate age of account (in days)
+
+        data.append(str(age_in_days))
 
         # write csv row to file
         csvfile = open('user_info.csv', 'a')
@@ -181,7 +223,8 @@ class TwitterAPI(object):
 
     def get_user_id(self, twitter_handle):
         try:
-            user = self.api.get_user(twitter_handle)
+            api = random.choice(self.apis)
+            user = api.get_user(twitter_handle)
             return user.id
         except tweepy.error.TweepError as err:
             if err[0][0]['code'] == 88:
@@ -337,6 +380,7 @@ class TwitterAPI(object):
             data_3 = []
             data_3.append(str(twitter_id))
             data_3.append(str(reply_count))
+            data_3.append(str(len(intersection)))
             data_3.append(str(reply_to_intersection))
             data_3.append(str(hashtag_count))
             data_3.append(str(repeated_hashtag_count))
@@ -360,7 +404,7 @@ class TwitterAPI(object):
         print "Fetching account details...",
         self.extract_user_details(user)
         print "done!"
-
+        
         # fetch tweets of chosen user
         print "Fetching tweets...",
         tweets = self.get_tweets(user_id)
@@ -380,7 +424,7 @@ class TwitterAPI(object):
         
         # begin BFS
         account_number = 0
-        while len(self.crawled_users) < 15 and len(self.users_to_crawl) > 0:
+        while len(self.crawled_users) < 10 and len(self.users_to_crawl) > 0:
             # extract user from list of users to be crawled
             user_id = self.users_to_crawl.pop(0)
 
@@ -407,7 +451,6 @@ class TwitterAPI(object):
 
             # process extracted user's data
             self.process_user(user_id, intersecting_users)
-            print "Account processed successfully!"
             print "=" * 30
             print
 
@@ -415,8 +458,9 @@ class TwitterAPI(object):
             self.crawled_users[user_id] = 1
 
         print "-" * 15,
-        print str(account_number), "accounts processed.",
+        print str(account_number), "accounts processed",
         print "-" * 15
+        print "Goodbye!\n"
 
 
 crawler = TwitterAPI()

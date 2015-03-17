@@ -1,7 +1,1 @@
-Twitter ID,Tweets with @,Hashtag count,Tweets with URL,Tweets containg spam URL
-471741741,85,10,34,0
-2833119062,54,30,51,0
-17097223,98,54,38,0
-46376581,9,20,34,0
-17850606,53,33,36,0
-2613904818,92,127,34,0
+"Twitter ID","Num replies","Common Accounts","Num replies to intersection","Hashtag count","Repeated Hashtag count","Tweets with URL","Tweets with spam URL"
