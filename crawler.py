@@ -57,18 +57,22 @@ class TwitterAPI(object):
             api = tweepy.API(auth)
             api_list.append(api)
 
-        print '\n', '-' * 15,
+        print '-' * 15,
         print len(api_list), "API connections established",
-        print '-' * 15, '\n'
+        print '-' * 15
         return api_list
 
     def load_blacklisted_urls(self):
+        print "Loading blacklisted URLs..."
+
         file_name = "blacklisted_urls.txt"
         urls = open(file_name).read().split("\r\n")
         blacklist = {}
         for url in urls:
             if blacklist.get(url, -1) == -1:
                 blacklist[url] = 1
+        print len(blacklist), "URLs loaded"
+        print "-" * 20
         return blacklist
 
     def begin_sleep_sequence(self):
