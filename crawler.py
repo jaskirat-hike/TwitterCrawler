@@ -16,6 +16,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+import datetime
 import csv
 import string
 import requests
@@ -56,9 +57,9 @@ class TwitterAPI(object):
             api = tweepy.API(auth)
             api_list.append(api)
 
-        print '-' * 15,
+        print '\n', '-' * 15,
         print len(api_list), "API connections established",
-        print '-' * 15
+        print '-' * 15, '\n'
         return api_list
 
     def load_blacklisted_urls(self):
@@ -154,10 +155,12 @@ class TwitterAPI(object):
         data.append(str(user.statuses_count))
         data.append(str(user.followers_count))
         data.append(str(user.friends_count))
-        data.append(str(user.created_at))
+        data.append(str(user.created_at.date))
 
         # calculate age of account (in days)
-
+        old = user.created_at.date()
+        today = datetime.date.today()
+        age_in_days = (today - old).days
         data.append(str(age_in_days))
 
         # write csv row to file
@@ -442,9 +445,7 @@ class TwitterAPI(object):
             print "done!"
 
             # get the intersection of followers and following
-            print "Calculating intersecting accounts...",
             intersecting_users = self.get_intersection_users(following_list, followers_list)
-            print "done!"
 
             # add following list users to users-TO-BE-crawled list
             self.add_following(following_list)
